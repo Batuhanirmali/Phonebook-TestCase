@@ -119,7 +119,7 @@ final class APIManager {
     // POST /api/User
     func createUser(_ requestBody: CreateUserRequest) async throws -> UserResponseSuccessDto {
         let bodyData = try JSONEncoder().encode(requestBody)
-        var request = try makeRequest(path: "/api/User", method: "POST", body: bodyData)
+        let request = try makeRequest(path: "/api/User", method: "POST", body: bodyData)
         return try await perform(request, as: UserResponseSuccessDto.self)
     }
     

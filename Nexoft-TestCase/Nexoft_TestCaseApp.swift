@@ -24,5 +24,6 @@ struct Nexoft_TestCaseApp: App {
         WindowGroup {
             ContentView()
         }
+        .modelContainer(sharedModelContainer)
     }
 }
