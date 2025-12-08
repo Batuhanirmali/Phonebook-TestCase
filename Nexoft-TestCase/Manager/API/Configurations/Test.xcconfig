@@ -1,0 +1,14 @@
+//
+//  Test.xcconfig
+//  Nexoft-TestCase
+//
+//  Created by Talha Batuhan Irmalı on 8.12.2025.
+//
+
+// Configuration settings file format documentation can be found at:
+
+// API base URL host for test environment
+BASE_URL = 146.59.52.68:11235
+
+// API key for test environment
+API_KEY = f411c38e-1188-49a3-8aea-46794b81a3e7

@@ -6,9 +6,20 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct Nexoft_TestCaseApp: App {
+    
+    var sharedModelContainer: ModelContainer = {
+        let schema = Schema([
+            UserEntity.self
+        ])
+        
+        let container = try! ModelContainer(for: schema)
+        return container
+    }()
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
