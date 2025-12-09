@@ -10,7 +10,7 @@ import UIKit
 
 // MARK: - Domain Model
 
-struct Contact: Identifiable, Equatable {
+struct Contact: Identifiable, Equatable, Hashable {
     let id: String
     var firstName: String
     var lastName: String
@@ -19,6 +19,16 @@ struct Contact: Identifiable, Equatable {
     var localImageData: Data?
     var createdAt: Date
     var isInDeviceContacts: Bool
+
+    // Custom Hashable implementation based on ID only
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+
+    // Custom Equatable implementation based on ID only
+    static func == (lhs: Contact, rhs: Contact) -> Bool {
+        lhs.id == rhs.id
+    }
 
     var fullName: String {
         let full = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)

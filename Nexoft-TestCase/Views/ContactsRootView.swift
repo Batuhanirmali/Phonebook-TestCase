@@ -12,6 +12,7 @@ struct ContactsRootView: View {
     @StateObject private var viewModel: ContactsViewModel
     @State private var searchText: String = ""
     @State private var isPresentingAddContact = false
+    @State private var selectedContact: Contact?
 
     init(viewModel: ContactsViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
@@ -80,6 +81,24 @@ struct ContactsRootView: View {
             }
             .presentationCornerRadius(25)
         }
+        .sheet(isPresented: Binding(
+            get: { selectedContact != nil },
+            set: { if !$0 { selectedContact = nil } }
+        )) {
+            if let contact = selectedContact {
+                EditContactView(contact: contact) { updatedContact in
+                    await viewModel.updateContact(updatedContact)
+                }
+                .presentationCornerRadius(25)
+                .onAppear {
+                    print("✅ Sheet appeared with contact: \(contact.fullName)")
+                }
+                .onDisappear {
+                    print("🔴 Sheet dismissed")
+                    selectedContact = nil
+                }
+            }
+        }
         .onAppear {
             viewModel.loadContacts()
         }
@@ -136,55 +155,56 @@ struct ContactsRootView: View {
     }
 
     private var contactsList: some View {
-        List {
-            ForEach(groupedContacts.keys.sorted(), id: \.self) { letter in
-                Section {
-                    // Section header inside the card
-                    HStack {
-                        Text(letter)
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                            .padding(.leading, 16)
-                            .padding(.top, 12)
-                            .padding(.bottom, 8)
-                        Spacer()
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.white)
+        ScrollView {
+            LazyVStack(spacing: 0, pinnedViews: []) {
+                ForEach(groupedContacts.keys.sorted(), id: \.self) { letter in
+                    let sectionContacts = groupedContacts[letter] ?? []
 
-                    ForEach(groupedContacts[letter] ?? []) { contact in
-                        ContactRowView(contact: contact)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.white)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
+                    VStack(spacing: 0) {
+                        // Section Header
+                        HStack {
+                            Text(letter)
+                                .font(.headline)
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 16)
+                                .padding(.top, 12)
+                                .padding(.bottom, 8)
+                            Spacer()
+                        }
+                        .background(Color.white)
+
+                        // Contacts in section
+                        ForEach(sectionContacts) { contact in
+                            SwipeableContactRow(
+                                contact: contact,
+                                onTap: {
+                                    print("🔵 Row tapped: \(contact.fullName) - ID: \(contact.id)")
+                                    selectedContact = contact
+                                    print("🟢 selectedContact set to: \(selectedContact?.fullName ?? "nil")")
+                                },
+                                onDelete: {
                                     Task {
                                         await viewModel.deleteContact(contact)
                                     }
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
                                 }
-                            }
+                            )
 
-                        if contact.id != groupedContacts[letter]?.last?.id {
-                            Divider()
-                                .padding(.leading, 60)
-                                .listRowInsets(EdgeInsets())
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.white)
+                            if contact.id != sectionContacts.last?.id {
+                                Divider()
+                                    .padding(.leading, 60)
+                                    .background(Color.white)
+                            }
                         }
                     }
+                    .background(Color.white)
+                    .cornerRadius(10)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                 }
-                .listSectionSeparator(.hidden)
             }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .environment(\.defaultMinListRowHeight, 0)
         .scrollIndicators(.hidden)
-        .scrollDismissesKeyboard(.immediately)
+        .id(viewModel.contacts.map { $0.id })
     }
 
     private var filteredContacts: [Contact] {
@@ -253,6 +273,85 @@ struct ContactAvatarView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Swipeable Contact Row
+
+struct SwipeableContactRow: View {
+    let contact: Contact
+    let onTap: () -> Void
+    let onDelete: () -> Void
+
+    @State private var offset: CGFloat = 0
+    @State private var isSwiping = false
+
+    private let deleteButtonWidth: CGFloat = 80
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            // Delete button (background)
+            HStack {
+                Spacer()
+                Button(action: onDelete) {
+                    VStack {
+                        Image(systemName: "trash")
+                            .font(.system(size: 20))
+                        Text("Delete")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.white)
+                    .frame(width: deleteButtonWidth)
+                }
+                .frame(maxHeight: .infinity)
+            }
+            .background(Color.red)
+
+            // Contact row (foreground)
+            ContactRowView(contact: contact)
+                .background(Color.white)
+                .offset(x: offset)
+                .gesture(
+                    DragGesture()
+                        .onChanged { gesture in
+                            isSwiping = true
+                            let translation = gesture.translation.width
+                            // Only allow swiping left (negative offset)
+                            if translation < 0 {
+                                offset = max(translation, -deleteButtonWidth)
+                            } else if offset < 0 {
+                                // Allow pulling back
+                                offset = min(0, offset + translation)
+                            }
+                        }
+                        .onEnded { gesture in
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                // If swiped more than half, snap to delete button
+                                if offset < -deleteButtonWidth / 2 {
+                                    offset = -deleteButtonWidth
+                                } else {
+                                    offset = 0
+                                }
+                            }
+
+                            // Delay tap detection
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                isSwiping = false
+                            }
+                        }
+                )
+                .onTapGesture {
+                    if !isSwiping && offset == 0 {
+                        onTap()
+                    } else if offset != 0 {
+                        // Close swipe
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            offset = 0
+                        }
+                    }
+                }
+        }
+        .clipped()
     }
 }
 

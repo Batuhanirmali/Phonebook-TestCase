@@ -58,14 +58,22 @@ final class ContactsViewModel: ObservableObject {
         guard let users = response.data.users else { return }
 
         for apiUser in users {
-            try upsertContact(from: apiUser)
+            try await upsertContact(from: apiUser)
         }
 
         // Refresh contacts from local database after sync
         contacts = try fetchLocalContacts()
+
+        // Debug: Log all contacts with their data status
+        print("📱 Total contacts loaded: \(contacts.count)")
+        for contact in contacts {
+            let hasImage = contact.localImageData != nil
+            let hasImageUrl = contact.profileImageUrl != nil
+            print("  - \(contact.fullName) | ID: \(contact.id) | LocalImage: \(hasImage) | ImageURL: \(hasImageUrl)")
+        }
     }
 
-    private func upsertContact(from apiUser: UserResponse) throws {
+    private func upsertContact(from apiUser: UserResponse) async throws {
         guard let userId = apiUser.id else { return }
 
         let predicate = #Predicate<UserEntity> { entity in
@@ -76,12 +84,34 @@ final class ContactsViewModel: ObservableObject {
 
         if let existing {
             existing.update(from: apiUser)
+
+            // Download image if URL exists and no local data
+            if let imageUrl = apiUser.profileImageUrl,
+               existing.localImageData == nil {
+                await downloadAndCacheImage(imageUrl, for: existing)
+            }
         } else {
             let newEntity = UserEntity(from: apiUser)
             modelContext.insert(newEntity)
+
+            // Download image if URL exists
+            if let imageUrl = apiUser.profileImageUrl {
+                await downloadAndCacheImage(imageUrl, for: newEntity)
+            }
         }
 
         try modelContext.save()
+    }
+
+    private func downloadAndCacheImage(_ urlString: String, for entity: UserEntity) async {
+        guard let url = URL(string: urlString) else { return }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            entity.localImageData = data
+        } catch {
+            print("Failed to download image: \(error)")
+        }
     }
 
     // MARK: - Add Contact
