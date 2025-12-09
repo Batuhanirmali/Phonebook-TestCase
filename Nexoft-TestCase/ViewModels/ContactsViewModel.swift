@@ -8,6 +8,7 @@
 import Foundation
 import SwiftData
 import SwiftUI
+import Contacts
 
 @MainActor
 final class ContactsViewModel: ObservableObject {
@@ -38,6 +39,9 @@ final class ContactsViewModel: ObservableObject {
 
                 // Then sync with API
                 try await syncWithAPI()
+
+                // Check phone contacts status
+                await syncPhoneContactsStatus()
             } catch {
                 errorMessage = "Failed to load contacts: \(error.localizedDescription)"
             }
@@ -51,6 +55,18 @@ final class ContactsViewModel: ObservableObject {
         )
         let entities = try modelContext.fetch(descriptor)
         return entities.map { Contact(from: $0) }
+    }
+
+    func refreshFromLocalDatabase() {
+        Task {
+            do {
+                contacts = try fetchLocalContacts()
+                // Check phone contacts status in background
+                await syncPhoneContactsStatus()
+            } catch {
+                print("Failed to refresh from local database: \(error)")
+            }
+        }
     }
 
     private func syncWithAPI() async throws {
@@ -69,7 +85,7 @@ final class ContactsViewModel: ObservableObject {
         for contact in contacts {
             let hasImage = contact.localImageData != nil
             let hasImageUrl = contact.profileImageUrl != nil
-            print("  - \(contact.fullName) | ID: \(contact.id) | LocalImage: \(hasImage) | ImageURL: \(hasImageUrl)")
+            print("  - \(contact.fullName) | ID: \(contact.id) | LocalImage: \(hasImage) | ImageURL: \(hasImageUrl) | InDeviceContacts: \(contact.isInDeviceContacts)")
         }
     }
 
@@ -146,6 +162,9 @@ final class ContactsViewModel: ObservableObject {
             // 4. Refresh contacts
             contacts = try fetchLocalContacts()
 
+            // 5. Check phone contacts status for the newly added contact
+            await syncPhoneContactsStatus()
+
             showSuccessMessage = true
         } catch {
             errorMessage = "Failed to add contact: \(error.localizedDescription)"
@@ -186,6 +205,7 @@ final class ContactsViewModel: ObservableObject {
             if let entity = try modelContext.fetch(descriptor).first {
                 entity.update(from: response.data)
                 entity.localImageData = contact.localImageData
+                entity.isInDeviceContacts = contact.isInDeviceContacts
                 try modelContext.save()
             }
 
@@ -240,6 +260,90 @@ final class ContactsViewModel: ObservableObject {
         return contacts.filter { contact in
             contact.fullName.lowercased().contains(query) ||
             contact.phoneNumber.lowercased().contains(query)
+        }
+    }
+
+    // MARK: - Phone Contacts Sync
+
+    private func syncPhoneContactsStatus() async {
+        guard !contacts.isEmpty else { return }
+
+        await withCheckedContinuation { continuation in
+            let store = CNContactStore()
+
+            store.requestAccess(for: .contacts) { granted, error in
+                guard granted else {
+                    print("Access denied for reading contacts in sync")
+                    continuation.resume()
+                    return
+                }
+
+                let keysToFetch = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactPhoneNumbersKey] as [CNKeyDescriptor]
+                let predicate = CNContact.predicateForContactsInContainer(withIdentifier: store.defaultContainerIdentifier())
+
+                do {
+                    let phoneContacts = try store.unifiedContacts(matching: predicate, keysToFetch: keysToFetch)
+
+                    // Create a DispatchGroup to wait for all updates
+                    let group = DispatchGroup()
+                    var hasUpdates = false
+
+                    // Update each contact's phone status
+                    for contact in self.contacts {
+                        let normalizedPhone = contact.phoneNumber.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+
+                        let existsInPhone = phoneContacts.contains { phoneContact in
+                            let matchesName = phoneContact.givenName.lowercased() == contact.firstName.lowercased() &&
+                                             phoneContact.familyName.lowercased() == contact.lastName.lowercased()
+
+                            let matchesPhone = phoneContact.phoneNumbers.contains { phoneNumber in
+                                let existingPhone = phoneNumber.value.stringValue.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+                                return existingPhone == normalizedPhone
+                            }
+
+                            return matchesName || matchesPhone
+                        }
+
+                        // Update database if status changed
+                        if contact.isInDeviceContacts != existsInPhone {
+                            hasUpdates = true
+                            group.enter()
+                            Task { @MainActor in
+                                let contactId = contact.id
+                                let predicate = #Predicate<UserEntity> { entity in
+                                    entity.id == contactId
+                                }
+                                let descriptor = FetchDescriptor(predicate: predicate)
+                                if let entity = try? self.modelContext.fetch(descriptor).first {
+                                    entity.isInDeviceContacts = existsInPhone
+                                    try? self.modelContext.save()
+                                    print("✅ Updated phone status for \(contact.fullName): \(existsInPhone)")
+                                }
+                                group.leave()
+                            }
+                        }
+                    }
+
+                    // Wait for all updates to complete, then refresh
+                    if hasUpdates {
+                        group.notify(queue: .main) {
+                            Task { @MainActor in
+                                if let updatedContacts = try? self.fetchLocalContacts() {
+                                    self.contacts = updatedContacts
+                                    print("🔄 Contacts list refreshed after phone sync")
+                                }
+                                continuation.resume()
+                            }
+                        }
+                    } else {
+                        print("ℹ️ No phone status updates needed")
+                        continuation.resume()
+                    }
+                } catch {
+                    print("Failed to sync phone contacts status: \(error)")
+                    continuation.resume()
+                }
+            }
         }
     }
 }

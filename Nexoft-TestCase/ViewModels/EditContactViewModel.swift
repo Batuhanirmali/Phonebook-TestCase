@@ -20,8 +20,9 @@ final class EditContactViewModel: ObservableObject {
     @Published var isSaving = false
     @Published var showSuccessAnimation = false
     @Published var showOptionsMenu = false
+    @Published var isEditMode = false
 
-    private let originalContact: Contact
+    let originalContact: Contact
 
     init(contact: Contact) {
         self.originalContact = contact

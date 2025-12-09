@@ -14,12 +14,15 @@ struct EditContactView: View {
     @StateObject private var viewModel: EditContactViewModel
     @State private var isSavedToPhone = false
     @State private var showPhoneSuccessPopup = false
+    @State private var showDeleteConfirmation = false
 
     var onSave: (Contact) async -> Void
+    var onDelete: ((Contact) async -> Void)?
 
-    init(contact: Contact, onSave: @escaping (Contact) async -> Void) {
+    init(contact: Contact, onSave: @escaping (Contact) async -> Void, onDelete: ((Contact) async -> Void)? = nil) {
         _viewModel = StateObject(wrappedValue: EditContactViewModel(contact: contact))
         self.onSave = onSave
+        self.onDelete = onDelete
     }
 
     var body: some View {
@@ -29,7 +32,9 @@ struct EditContactView: View {
                     AvatarPickerView(
                         image: viewModel.avatarImage,
                         onTap: {
-                            viewModel.showImagePickerOverlay = true
+                            if viewModel.isEditMode {
+                                viewModel.showImagePickerOverlay = true
+                            }
                         }
                     )
                     .padding(.top, 24)
@@ -37,13 +42,16 @@ struct EditContactView: View {
                     VStack(spacing: 12) {
                         TextField("First Name", text: $viewModel.firstName)
                             .textFieldStyle(ContactTextFieldStyle())
+                            .disabled(!viewModel.isEditMode)
 
                         TextField("Last Name", text: $viewModel.lastName)
                             .textFieldStyle(ContactTextFieldStyle())
+                            .disabled(!viewModel.isEditMode)
 
                         TextField("Phone Number", text: $viewModel.phoneNumber)
                             .keyboardType(.phonePad)
                             .textFieldStyle(ContactTextFieldStyle())
+                            .disabled(!viewModel.isEditMode)
                     }
                     .padding(.horizontal, 16)
 
@@ -67,7 +75,7 @@ struct EditContactView: View {
                                     .stroke(isSavedToPhone ? Color.gray.opacity(0.3) : Color.primary.opacity(0.3), lineWidth: 1)
                             )
                         }
-                        .disabled(isSavedToPhone)
+                        .disabled(isSavedToPhone || viewModel.isEditMode)
 
                         if isSavedToPhone {
                             HStack(spacing: 6) {
@@ -94,20 +102,35 @@ struct EditContactView: View {
                 }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("Cancel") {
-                            dismiss()
+                        if viewModel.isEditMode {
+                            Button("Cancel") {
+                                viewModel.isEditMode = false
+                            }
+                            .disabled(viewModel.isSaving)
+                        } else {
+                            Button("Cancel") {
+                                dismiss()
+                            }
+                            .disabled(viewModel.isSaving)
                         }
-                        .disabled(viewModel.isSaving)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            viewModel.showOptionsMenu = true
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .rotationEffect(.degrees(90))
-                                .font(.system(size: 18))
+                        if viewModel.isEditMode {
+                            Button("Done") {
+                                saveContact()
+                            }
+                            .disabled(!viewModel.isValid || viewModel.isSaving)
+                        } else {
+                            Button {
+                                viewModel.showOptionsMenu = true
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .rotationEffect(.degrees(90))
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(.black)
+                            }
+                            .disabled(viewModel.isSaving)
                         }
-                        .disabled(viewModel.isSaving)
                     }
                 }
                 .disabled(viewModel.isSaving || viewModel.showSuccessAnimation)
@@ -134,10 +157,15 @@ struct EditContactView: View {
                 .ignoresSafeArea()
             }
             .confirmationDialog("Options", isPresented: $viewModel.showOptionsMenu) {
-                Button("Save Changes") {
-                    saveContact()
+                Button("Edit") {
+                    viewModel.isEditMode = true
+                    viewModel.showOptionsMenu = false
                 }
-                .disabled(!viewModel.isValid)
+
+                Button("Delete", role: .destructive) {
+                    viewModel.showOptionsMenu = false
+                    showDeleteConfirmation = true
+                }
 
                 Button("Cancel", role: .cancel) {
                     viewModel.showOptionsMenu = false
@@ -194,21 +222,52 @@ struct EditContactView: View {
                 .zIndex(1)
             }
         }
+        .sheet(isPresented: $showDeleteConfirmation) {
+            DeleteConfirmationSheet(
+                contactName: viewModel.firstName + " " + viewModel.lastName,
+                onConfirm: {
+                    showDeleteConfirmation = false
+                    Task {
+                        await onDelete?(viewModel.originalContact)
+                        dismiss()
+                    }
+                },
+                onCancel: {
+                    showDeleteConfirmation = false
+                }
+            )
+            .presentationDetents([.height(250)])
+            .presentationCornerRadius(22)
+            .presentationDragIndicator(.visible)
+        }
     }
 
     private func saveContact() {
         viewModel.isSaving = true
-        let contact = viewModel.createUpdatedContact()
+        var contact = viewModel.createUpdatedContact()
+
+        // Update isInDeviceContacts based on current state
+        contact = Contact(
+            id: contact.id,
+            firstName: contact.firstName,
+            lastName: contact.lastName,
+            phoneNumber: contact.phoneNumber,
+            profileImageUrl: contact.profileImageUrl,
+            localImageData: contact.localImageData,
+            createdAt: contact.createdAt,
+            isInDeviceContacts: isSavedToPhone
+        )
 
         Task {
             await onSave(contact)
 
             // Update phone contact if it exists
             if isSavedToPhone {
-//                updatePhoneContact()
+                updatePhoneContact()
             }
 
             viewModel.isSaving = false
+            viewModel.isEditMode = false
             viewModel.showSuccessAnimation = true
 
             // Wait for animation to complete, then dismiss
@@ -301,6 +360,71 @@ struct EditContactView: View {
                 }
             } catch {
                 print("Failed to save contact: \(error)")
+            }
+        }
+    }
+
+    private func updatePhoneContact() {
+        let store = CNContactStore()
+
+        store.requestAccess(for: .contacts) { granted, error in
+            guard granted else {
+                print("Access denied for updating contacts")
+                return
+            }
+
+            let keysToFetch = [
+                CNContactGivenNameKey,
+                CNContactFamilyNameKey,
+                CNContactPhoneNumbersKey,
+                CNContactImageDataKey,
+                CNContactIdentifierKey
+            ] as [CNKeyDescriptor]
+
+            let predicate = CNContact.predicateForContactsInContainer(withIdentifier: store.defaultContainerIdentifier())
+
+            do {
+                let contacts = try store.unifiedContacts(matching: predicate, keysToFetch: keysToFetch)
+                let normalizedPhone = viewModel.phoneNumber.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+
+                // Find the matching contact by original name or phone
+                if let existingContact = contacts.first(where: { contact in
+                    let matchesName = contact.givenName.lowercased() == viewModel.firstName.lowercased() &&
+                                     contact.familyName.lowercased() == viewModel.lastName.lowercased()
+
+                    let matchesPhone = contact.phoneNumbers.contains { phoneNumber in
+                        let existingPhone = phoneNumber.value.stringValue.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+                        return existingPhone == normalizedPhone
+                    }
+
+                    return matchesName || matchesPhone
+                }) {
+                    // Create mutable copy
+                    let mutableContact = existingContact.mutableCopy() as! CNMutableContact
+
+                    // Update fields
+                    mutableContact.givenName = viewModel.firstName
+                    mutableContact.familyName = viewModel.lastName
+
+                    let phoneNumber = CNLabeledValue(
+                        label: CNLabelPhoneNumberMobile,
+                        value: CNPhoneNumber(stringValue: viewModel.phoneNumber)
+                    )
+                    mutableContact.phoneNumbers = [phoneNumber]
+
+                    if let image = viewModel.avatarImage {
+                        mutableContact.imageData = image.jpegData(compressionQuality: 0.8)
+                    }
+
+                    // Save changes
+                    let saveRequest = CNSaveRequest()
+                    saveRequest.update(mutableContact)
+
+                    try store.execute(saveRequest)
+                    print("✅ Phone contact updated successfully")
+                }
+            } catch {
+                print("Failed to update phone contact: \(error)")
             }
         }
     }

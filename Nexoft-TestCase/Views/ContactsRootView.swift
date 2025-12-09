@@ -75,7 +75,10 @@ struct ContactsRootView: View {
                 }
             }
         }
-        .sheet(isPresented: $isPresentingAddContact) {
+        .sheet(isPresented: $isPresentingAddContact, onDismiss: {
+            // Refresh contacts from local database only (faster than full API sync)
+            viewModel.refreshFromLocalDatabase()
+        }) {
             NewContactView { newContact in
                 await viewModel.addContact(newContact)
             }
@@ -86,9 +89,15 @@ struct ContactsRootView: View {
             set: { if !$0 { selectedContact = nil } }
         )) {
             if let contact = selectedContact {
-                EditContactView(contact: contact) { updatedContact in
-                    await viewModel.updateContact(updatedContact)
-                }
+                EditContactView(
+                    contact: contact,
+                    onSave: { updatedContact in
+                        await viewModel.updateContact(updatedContact)
+                    },
+                    onDelete: { contactToDelete in
+                        await viewModel.deleteContact(contactToDelete)
+                    }
+                )
                 .presentationCornerRadius(25)
                 .onAppear {
                     print("✅ Sheet appeared with contact: \(contact.fullName)")
@@ -172,12 +181,16 @@ struct ContactsRootView: View {
                             Spacer()
                         }
                         .background(Color.white)
+                        .onTapGesture {
+                            hideKeyboard()
+                        }
 
                         // Contacts in section
                         ForEach(sectionContacts) { contact in
                             SwipeableContactRow(
                                 contact: contact,
                                 onTap: {
+                                    hideKeyboard()
                                     print("🔵 Row tapped: \(contact.fullName) - ID: \(contact.id)")
                                     selectedContact = contact
                                     print("🟢 selectedContact set to: \(selectedContact?.fullName ?? "nil")")
@@ -188,6 +201,7 @@ struct ContactsRootView: View {
                                     }
                                 }
                             )
+                            .id("\(contact.id)-\(contact.firstName)-\(contact.lastName)-\(contact.phoneNumber)-\(contact.localImageData?.hashValue ?? 0)-\(contact.isInDeviceContacts)")
 
                             if contact.id != sectionContacts.last?.id {
                                 Divider()
@@ -203,8 +217,11 @@ struct ContactsRootView: View {
                 }
             }
         }
-        .scrollIndicators(.hidden)
-        .id(viewModel.contacts.map { $0.id })
+        .scrollIndicators(.visible)
+        .scrollDisabled(false)
+        .onTapGesture {
+            hideKeyboard()
+        }
     }
 
     private var filteredContacts: [Contact] {
@@ -254,25 +271,36 @@ struct ContactAvatarView: View {
     let contact: Contact
 
     var body: some View {
-        Group {
-            if let image = contact.avatarImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 44, height: 44)
-                    .clipShape(Circle())
-            } else {
-                ZStack {
-                    Circle()
-                        .fill(Color(red: 0xED/255, green: 0xFA/255, blue: 0xFF/255))
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if let image = contact.avatarImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
                         .frame(width: 44, height: 44)
+                        .clipShape(Circle())
+                } else {
+                    ZStack {
+                        Circle()
+                            .fill(Color(red: 0xED/255, green: 0xFA/255, blue: 0xFF/255))
+                            .frame(width: 44, height: 44)
 
-                    Text(contact.fullName.prefix(1).uppercased())
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(Color(red: 0x00/255, green: 0x7A/255, blue: 0xFF/255))
+                        Text(contact.fullName.prefix(1).uppercased())
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(Color(red: 0x00/255, green: 0x7A/255, blue: 0xFF/255))
+                    }
                 }
             }
+
+            if contact.isInDeviceContacts {
+                Image("telephone")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
+                    .offset(x: 2, y: 2)
+            }
         }
+        .frame(width: 44, height: 44)
     }
 }
 
@@ -285,6 +313,7 @@ struct SwipeableContactRow: View {
 
     @State private var offset: CGFloat = 0
     @State private var isSwiping = false
+    @State private var showDeleteConfirmation = false
 
     private let deleteButtonWidth: CGFloat = 80
 
@@ -293,7 +322,13 @@ struct SwipeableContactRow: View {
             // Delete button (background)
             HStack {
                 Spacer()
-                Button(action: onDelete) {
+                Button(action: {
+                    showDeleteConfirmation = true
+                    // Close swipe
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        offset = 0
+                    }
+                }) {
                     VStack {
                         Image(systemName: "trash")
                             .font(.system(size: 20))
@@ -352,6 +387,74 @@ struct SwipeableContactRow: View {
                 }
         }
         .clipped()
+        .sheet(isPresented: $showDeleteConfirmation) {
+            DeleteConfirmationSheet(
+                contactName: contact.fullName,
+                onConfirm: {
+                    showDeleteConfirmation = false
+                    onDelete()
+                },
+                onCancel: {
+                    showDeleteConfirmation = false
+                }
+            )
+            .presentationDetents([.height(250)])
+            .presentationCornerRadius(22)
+            .presentationDragIndicator(.visible)
+        }
+    }
+}
+
+// MARK: - Delete Confirmation Sheet
+
+struct DeleteConfirmationSheet: View {
+    let contactName: String
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 8) {
+                Text("Delete Contact")
+                    .font(.system(size: 20, weight: .semibold))
+
+                Text("Are you sure you want to delete this contact?")
+                    .font(.system(size: 15))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 32)
+
+            HStack(spacing: 12) {
+                Button(action: onCancel) {
+                    Text("No")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 28)
+                                .stroke(Color.primary.opacity(0.3), lineWidth: 1)
+                        )
+                }
+
+                Button(action: onConfirm) {
+                    Text("Yes")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 28)
+                                .fill(Color.black)
+                        )
+                }
+            }
+            .padding(.horizontal, 16)
+
+            Spacer()
+        }
+        .background(Color(.systemBackground))
     }
 }
 
