@@ -31,6 +31,7 @@ struct ImagePickerOverlay: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
                 .padding(.horizontal, 24)
@@ -55,6 +56,7 @@ struct ImagePickerOverlay: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
                 .padding(.horizontal, 24)

@@ -33,9 +33,9 @@ struct AvatarPickerView: View {
                                     .fill(Color(.systemGray6))
                                     .frame(width: 96, height: 96)
 
-                                Image(systemName: "person.crop.circle")
-                                    .font(.system(size: 60))
-                                    .foregroundColor(.secondary)
+                                Image("person")
+                                    .resizable()
+                                    .frame(width: 96, height: 96)
                             }
                         }
                         Text(image == nil ? "Add Photo" : "Change Photo")

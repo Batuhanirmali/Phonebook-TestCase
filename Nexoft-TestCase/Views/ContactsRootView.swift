@@ -36,11 +36,15 @@ struct ContactsRootView: View {
                         searchHistoryView
                         Spacer()
                     } else if viewModel.isLoading && viewModel.contacts.isEmpty {
+                        Spacer()
                         loadingView
+                        Spacer()
                     } else if viewModel.contacts.isEmpty && searchText.isEmpty {
                         emptyState
+                        Spacer()
                     } else if !searchText.isEmpty && filteredContacts.isEmpty {
                         noResultsView
+                        Spacer()
                     } else {
                         contactsList
                     }
@@ -179,17 +183,19 @@ struct ContactsRootView: View {
 
     private var loadingView: some View {
         VStack(spacing: 12) {
-            Spacer()
             ProgressView()
-            Spacer()
         }
     }
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "person.crop.circle")
-                .font(.system(size: 72))
-                .foregroundStyle(Color(.systemGray3))
+//            Image(systemName: "person.crop.circle")
+//                .font(.system(size: 72))
+//                .foregroundStyle(Color(.systemGray3))
+//                .padding(.top, 80)
+            Image("person")
+                .resizable()
+                .frame(width: 72, height: 72)
                 .padding(.top, 80)
 
             Text("No Contacts")
@@ -226,8 +232,6 @@ struct ContactsRootView: View {
                 .foregroundColor(.black)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
-
-            Spacer()
         }
     }
 
