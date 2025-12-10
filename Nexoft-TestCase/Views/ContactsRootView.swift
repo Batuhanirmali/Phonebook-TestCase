@@ -236,11 +236,9 @@ struct ContactsRootView: View {
     }
 
     private var searchHistoryView: some View {
-        // Show history in the same order as stored (latest already at the top)
         let history = searchHistoryManager.searchHistory
 
         return VStack(alignment: .leading, spacing: 8) {
-            // Header OUTSIDE of white box
             HStack {
                 Text("SEARCH HISTORY")
                     .font(.system(size: 14, weight: .medium))
@@ -309,17 +307,19 @@ struct ContactsRootView: View {
     }
 
     private var contactsList: some View {
-        ScrollView {
+        let sortedKeys = groupedContacts.keys.sorted()
+
+        return ScrollView {
             LazyVStack(spacing: 0, pinnedViews: []) {
-                ForEach(groupedContacts.keys.sorted(), id: \.self) { letter in
+                ForEach(Array(sortedKeys.enumerated()), id: \.element) { index, letter in
                     let sectionContacts = groupedContacts[letter] ?? []
+                    let isFirstSection = index == 0
 
                     VStack(spacing: 0) {
-                        // Section Header
                         HStack {
-                            Text(letter)
-                                .font(.headline)
-                                .foregroundColor(.secondary)
+                            Text((isSearchActive && isFirstSection) ? "TOP NAME MATCHES" : letter)
+                                .font(.system(size: (isSearchActive && isFirstSection) ? 14 : 17, weight: (isSearchActive && isFirstSection) ? .medium : .medium))
+                                .foregroundColor((isSearchActive && isFirstSection) ? Color(red: 0xB0/255, green: 0xB0/255, blue: 0xB0/255) : .secondary)
                                 .padding(.leading, 16)
                                 .padding(.top, 12)
                                 .padding(.bottom, 8)
@@ -382,6 +382,10 @@ struct ContactsRootView: View {
         Dictionary(grouping: filteredContacts) { contact in
             String(contact.fullName.prefix(1).uppercased())
         }
+    }
+
+    private var isSearchActive: Bool {
+        !searchText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private func hideKeyboard() {
