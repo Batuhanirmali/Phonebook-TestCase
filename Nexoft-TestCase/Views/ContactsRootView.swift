@@ -10,9 +10,11 @@ import SwiftData
 
 struct ContactsRootView: View {
     @StateObject private var viewModel: ContactsViewModel
+    @StateObject private var searchHistoryManager = SearchHistoryManager.shared
     @State private var searchText: String = ""
     @State private var isPresentingAddContact = false
     @State private var selectedContact: Contact?
+    @FocusState private var isSearchFocused: Bool
 
     init(viewModel: ContactsViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
@@ -30,10 +32,15 @@ struct ContactsRootView: View {
                         .padding(.top, 8)
                         .padding(.bottom, 12)
 
-                    if viewModel.isLoading && viewModel.contacts.isEmpty {
+                    if isSearchFocused && searchText.isEmpty && !searchHistoryManager.searchHistory.isEmpty {
+                        searchHistoryView
+                        Spacer()
+                    } else if viewModel.isLoading && viewModel.contacts.isEmpty {
                         loadingView
                     } else if viewModel.contacts.isEmpty && searchText.isEmpty {
                         emptyState
+                    } else if !searchText.isEmpty && filteredContacts.isEmpty {
+                        noResultsView
                     } else {
                         contactsList
                     }
@@ -140,6 +147,8 @@ struct ContactsRootView: View {
                 print("🔴 Sheet dismissed")
                 selectedContact = nil
                 viewModel.shouldStartInEditMode = false
+                // Refresh to update phone contact status
+                viewModel.refreshFromLocalDatabase()
             }
         }
         .onAppear {
@@ -154,6 +163,12 @@ struct ContactsRootView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundColor(.gray)
             TextField("Search by name", text: $searchText)
+                .focused($isSearchFocused)
+                .onSubmit {
+                    if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                        searchHistoryManager.addSearchQuery(searchText)
+                    }
+                }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 12)
@@ -192,6 +207,100 @@ struct ContactsRootView: View {
                     .foregroundColor(.blue)
             }
             .padding(.top, 4)
+        }
+    }
+
+    private var noResultsView: some View {
+        VStack(spacing: 16) {
+            Image("nodata")
+                .resizable()
+                .frame(width: 96, height: 96)
+                .padding(.top, 40)
+
+            Text("No Results")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(.black)
+
+            Text("The user you are looking for could not be found.")
+                .font(.system(size: 16))
+                .foregroundColor(.black)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            Spacer()
+        }
+    }
+
+    private var searchHistoryView: some View {
+        // Show history in the same order as stored (latest already at the top)
+        let history = searchHistoryManager.searchHistory
+
+        return VStack(alignment: .leading, spacing: 8) {
+            // Header OUTSIDE of white box
+            HStack {
+                Text("SEARCH HISTORY")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Color(red: 0xB0/255, green: 0xB0/255, blue: 0xB0/255))
+
+                Spacer()
+
+                Button {
+                    searchHistoryManager.clearAllHistory()
+                } label: {
+                    Text("Clear All")
+                        .font(.system(size: 13))
+                        .foregroundColor(.blue)
+                        .underline()
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 12)
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(history.indices, id: \.self) { index in
+                        let query = history[index]
+
+                        HStack(spacing: 12) {
+                            Button {
+                                searchHistoryManager.removeSearchQuery(query)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.gray)
+                            }
+
+                            Button {
+                                searchText = query
+                                isSearchFocused = false
+                            } label: {
+                                HStack {
+                                    Text(query)
+                                        .font(.system(size: 15))
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(Color.white)
+
+                        if index != history.count - 1 {
+                            Divider()
+                                .padding(.leading, 40)
+                        }
+                    }
+                }
+                .background(Color.white)
+                .cornerRadius(8)
+                .padding(.horizontal, 16)
+            }
+            .scrollIndicators(.hidden)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            hideKeyboard()
         }
     }
 
@@ -242,7 +351,7 @@ struct ContactsRootView: View {
 
                             if contact.id != sectionContacts.last?.id {
                                 Divider()
-                                    .padding(.leading, 60)
+                                    .padding(.horizontal, 16)
                                     .background(Color.white)
                             }
                         }
@@ -272,7 +381,7 @@ struct ContactsRootView: View {
     }
 
     private func hideKeyboard() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        isSearchFocused = false
     }
 }
 
