@@ -16,6 +16,8 @@ final class ContactsViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var showSuccessMessage = false
+    @Published var showDeleteSuccessMessage = false
+    @Published var shouldStartInEditMode = false
 
     private let modelContext: ModelContext
     private let apiManager: APIManager
@@ -243,6 +245,9 @@ final class ContactsViewModel: ObservableObject {
 
             // 3. Refresh contacts
             contacts = try fetchLocalContacts()
+
+            // 4. Show delete success message
+            showDeleteSuccessMessage = true
         } catch {
             errorMessage = "Failed to delete contact: \(error.localizedDescription)"
         }

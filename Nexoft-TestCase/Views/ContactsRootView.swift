@@ -73,10 +73,44 @@ struct ContactsRootView: View {
                             }
                         }
                 }
+
+                if viewModel.showDeleteSuccessMessage {
+                    VStack {
+                        Spacer()
+                        HStack(spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(.green)
+
+                            Text("User is deleted!")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.primary)
+
+                            Spacer()
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(.systemBackground))
+                                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 100)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(1)
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            withAnimation {
+                                viewModel.showDeleteSuccessMessage = false
+                            }
+                        }
+                    }
+                }
             }
         }
         .sheet(isPresented: $isPresentingAddContact, onDismiss: {
-            // Refresh contacts from local database only (faster than full API sync)
             viewModel.refreshFromLocalDatabase()
         }) {
             NewContactView { newContact in
@@ -84,28 +118,28 @@ struct ContactsRootView: View {
             }
             .presentationCornerRadius(25)
         }
-        .sheet(isPresented: Binding(
-            get: { selectedContact != nil },
-            set: { if !$0 { selectedContact = nil } }
-        )) {
-            if let contact = selectedContact {
-                EditContactView(
-                    contact: contact,
-                    onSave: { updatedContact in
-                        await viewModel.updateContact(updatedContact)
-                    },
-                    onDelete: { contactToDelete in
-                        await viewModel.deleteContact(contactToDelete)
-                    }
-                )
-                .presentationCornerRadius(25)
-                .onAppear {
-                    print("✅ Sheet appeared with contact: \(contact.fullName)")
+        .sheet(item: Binding(
+            get: { selectedContact },
+            set: { selectedContact = $0 }
+        )) { contact in
+            EditContactView(
+                contact: contact,
+                startInEditMode: viewModel.shouldStartInEditMode,
+                onSave: { updatedContact in
+                    await viewModel.updateContact(updatedContact)
+                },
+                onDelete: { contactToDelete in
+                    await viewModel.deleteContact(contactToDelete)
                 }
-                .onDisappear {
-                    print("🔴 Sheet dismissed")
-                    selectedContact = nil
-                }
+            )
+            .presentationCornerRadius(25)
+            .onAppear {
+                print("✅ Sheet appeared with contact: \(contact.fullName)")
+            }
+            .onDisappear {
+                print("🔴 Sheet dismissed")
+                selectedContact = nil
+                viewModel.shouldStartInEditMode = false
             }
         }
         .onAppear {
@@ -130,11 +164,9 @@ struct ContactsRootView: View {
 
     private var loadingView: some View {
         VStack(spacing: 12) {
+            Spacer()
             ProgressView()
-                .padding(.top, 80)
-            Text("Loading contacts...")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            Spacer()
         }
     }
 
@@ -194,6 +226,11 @@ struct ContactsRootView: View {
                                     print("🔵 Row tapped: \(contact.fullName) - ID: \(contact.id)")
                                     selectedContact = contact
                                     print("🟢 selectedContact set to: \(selectedContact?.fullName ?? "nil")")
+                                },
+                                onEdit: {
+                                    hideKeyboard()
+                                    viewModel.shouldStartInEditMode = true
+                                    selectedContact = contact
                                 },
                                 onDelete: {
                                     Task {
@@ -309,40 +346,60 @@ struct ContactAvatarView: View {
 struct SwipeableContactRow: View {
     let contact: Contact
     let onTap: () -> Void
+    let onEdit: () -> Void
     let onDelete: () -> Void
 
     @State private var offset: CGFloat = 0
     @State private var isSwiping = false
     @State private var showDeleteConfirmation = false
 
-    private let deleteButtonWidth: CGFloat = 80
+    private let actionButtonsWidth: CGFloat = 160
 
     var body: some View {
         ZStack(alignment: .trailing) {
-            // Delete button (background)
-            HStack {
+            // Action buttons (background)
+            HStack(spacing: 0) {
                 Spacer()
+
                 Button(action: {
-                    showDeleteConfirmation = true
-                    // Close swipe
+                    onEdit()
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                         offset = 0
                     }
                 }) {
-                    VStack {
-                        Image(systemName: "trash")
-                            .font(.system(size: 20))
-                        Text("Delete")
-                            .font(.caption)
+                    VStack(spacing: 4) {
+                        Image("edit")
+                            .resizable()
+                            .renderingMode(.template)
+                            .frame(width: 16,height: 16)
+                            .foregroundColor(.white)
                     }
                     .foregroundColor(.white)
-                    .frame(width: deleteButtonWidth)
+                    .frame(width: 56)
                 }
                 .frame(maxHeight: .infinity)
-            }
-            .background(Color.red)
+                .background(Color.blue)
 
-            // Contact row (foreground)
+                Button(action: {
+                    showDeleteConfirmation = true
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        offset = 0
+                    }
+                }) {
+                    VStack(spacing: 4) {
+                        Image("delete")
+                            .resizable()
+                            .renderingMode(.template)
+                            .frame(width: 16,height: 16)
+                            .foregroundColor(.white)
+                    }
+                    .foregroundColor(.white)
+                    .frame(width: 56)
+                }
+                .frame(maxHeight: .infinity)
+                .background(Color.red)
+            }
+
             ContactRowView(contact: contact)
                 .background(Color.white)
                 .offset(x: offset)
@@ -351,25 +408,21 @@ struct SwipeableContactRow: View {
                         .onChanged { gesture in
                             isSwiping = true
                             let translation = gesture.translation.width
-                            // Only allow swiping left (negative offset)
                             if translation < 0 {
-                                offset = max(translation, -deleteButtonWidth)
+                                offset = max(translation, -actionButtonsWidth)
                             } else if offset < 0 {
-                                // Allow pulling back
                                 offset = min(0, offset + translation)
                             }
                         }
                         .onEnded { gesture in
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                // If swiped more than half, snap to delete button
-                                if offset < -deleteButtonWidth / 2 {
-                                    offset = -deleteButtonWidth
+                                if offset < -actionButtonsWidth / 2 {
+                                    offset = -actionButtonsWidth
                                 } else {
                                     offset = 0
                                 }
                             }
 
-                            // Delay tap detection
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 isSwiping = false
                             }

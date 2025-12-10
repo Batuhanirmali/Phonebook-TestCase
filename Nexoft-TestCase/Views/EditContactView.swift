@@ -16,11 +16,14 @@ struct EditContactView: View {
     @State private var showPhoneSuccessPopup = false
     @State private var showDeleteConfirmation = false
 
+    let startInEditMode: Bool
+
     var onSave: (Contact) async -> Void
     var onDelete: ((Contact) async -> Void)?
 
-    init(contact: Contact, onSave: @escaping (Contact) async -> Void, onDelete: ((Contact) async -> Void)? = nil) {
+    init(contact: Contact, startInEditMode: Bool = false, onSave: @escaping (Contact) async -> Void, onDelete: ((Contact) async -> Void)? = nil) {
         _viewModel = StateObject(wrappedValue: EditContactViewModel(contact: contact))
+        self.startInEditMode = startInEditMode
         self.onSave = onSave
         self.onDelete = onDelete
     }
@@ -99,17 +102,15 @@ struct EditContactView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .onAppear {
                     checkIfContactExistsInPhone()
+                    if startInEditMode {
+                        viewModel.isEditMode = true
+                    }
                 }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         if viewModel.isEditMode {
                             Button("Cancel") {
                                 viewModel.isEditMode = false
-                            }
-                            .disabled(viewModel.isSaving)
-                        } else {
-                            Button("Cancel") {
-                                dismiss()
                             }
                             .disabled(viewModel.isSaving)
                         }
@@ -156,21 +157,6 @@ struct EditContactView: View {
                 )
                 .ignoresSafeArea()
             }
-            .confirmationDialog("Options", isPresented: $viewModel.showOptionsMenu) {
-                Button("Edit") {
-                    viewModel.isEditMode = true
-                    viewModel.showOptionsMenu = false
-                }
-
-                Button("Delete", role: .destructive) {
-                    viewModel.showOptionsMenu = false
-                    showDeleteConfirmation = true
-                }
-
-                Button("Cancel", role: .cancel) {
-                    viewModel.showOptionsMenu = false
-                }
-            }
 
             if viewModel.showSuccessAnimation {
                 Color.white
@@ -191,6 +177,39 @@ struct EditContactView: View {
                             .foregroundColor(.secondary)
                     }
                 }
+            }
+
+            // Menu bubble
+            if viewModel.showOptionsMenu {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.spring()) {
+                                viewModel.showOptionsMenu = false
+                            }
+                        }
+
+                    VStack {
+                        HStack {
+                            Spacer()
+                            MenuBubble(
+                                showMenu: $viewModel.showOptionsMenu,
+                                onEdit: {
+                                    viewModel.isEditMode = true
+                                },
+                                onDelete: {
+                                    showDeleteConfirmation = true
+                                }
+                            )
+                            .padding(.trailing, 16)
+                            .padding(.top, 60)
+                        }
+                        Spacer()
+                    }
+                }
+                .transition(.opacity)
+                .zIndex(2)
             }
 
             // Phone save success popup
@@ -427,5 +446,65 @@ struct EditContactView: View {
                 print("Failed to update phone contact: \(error)")
             }
         }
+    }
+}
+
+// MARK: - Menu Bubble
+
+struct MenuBubble: View {
+    @Binding var showMenu: Bool
+    var onEdit: () -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 14) {
+                Button {
+                    onEdit()
+                    withAnimation(.spring()) {
+                        showMenu = false
+                    }
+                } label: {
+                    HStack {
+                        Text("Edit")
+                            .foregroundColor(.black)
+                            .font(.system(size: 14))
+                            .padding(.trailing, 50)
+                        Spacer()
+                        Image("edit")
+                            .resizable()
+                            .frame(width: 16,height: 16)
+                            .foregroundColor(.black)
+                    }
+                }
+
+                Divider()
+
+                Button {
+                    onDelete()
+                    withAnimation(.spring()) {
+                        showMenu = false
+                    }
+                } label: {
+                    HStack {
+                        Text("Delete")
+                            .foregroundColor(.red)
+                            .font(.system(size: 14))
+                            .padding(.trailing, 50)
+
+                        Spacer()
+                        Image("delete")
+                            .resizable()
+                            .frame(width: 16,height: 16)
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            .padding(14)
+            .background(Color.white)
+            .cornerRadius(14)
+            .shadow(color: .black.opacity(0.15), radius: 10, y: 5)
+        }
+        .fixedSize()
     }
 }
