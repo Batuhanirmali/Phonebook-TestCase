@@ -52,8 +52,7 @@ final class SearchHistoryManager: ObservableObject {
         if let data = UserDefaults.standard.array(forKey: userDefaultsKey) as? [String] {
             searchHistory = data
         } else {
-            // Add sample data for testing (remove in production)
-            searchHistory = ["Adam", "Jessica", "Tim"]
+            searchHistory = []
         }
     }
 

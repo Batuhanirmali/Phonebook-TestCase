@@ -39,7 +39,8 @@ struct AvatarPickerView: View {
                             }
                         }
                         Text(image == nil ? "Add Photo" : "Change Photo")
-                            .font(.subheadline)
+                            .font(.system(size: 16))
+                            .bold()
                             .foregroundColor(.blue)
                     }
 

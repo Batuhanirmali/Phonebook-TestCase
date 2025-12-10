@@ -23,9 +23,9 @@ struct ImagePickerOverlay: View {
                     }
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "camera")
-                            .font(.system(size: 18, weight: .regular))
-
+                        Image("camera")
+                            .resizable()
+                            .frame(width: 20, height: 20)
                         Text("Camera")
                             .font(.system(size: 18, weight: .regular))
                     }
@@ -48,8 +48,9 @@ struct ImagePickerOverlay: View {
                     }
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "photo.on.rectangle")
-                            .font(.system(size: 18, weight: .regular))
+                        Image("gallery")
+                            .resizable()
+                            .frame(width: 20, height: 20)
 
                         Text("Gallery")
                             .font(.system(size: 18, weight: .regular))

@@ -58,43 +58,45 @@ struct EditContactView: View {
                     }
                     .padding(.horizontal, 16)
 
-                    // Save to Phone button
-                    VStack(spacing: 8) {
-                        Button {
-                            saveToPhoneContacts()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "bookmark")
-                                    .font(.system(size: 16))
+                    // Save to Phone button - Hidden in edit mode
+                    if !viewModel.isEditMode {
+                        VStack(spacing: 8) {
+                            Button {
+                                saveToPhoneContacts()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "bookmark")
+                                        .font(.system(size: 16))
 
-                                Text("Save to My Phone Contact")
-                                    .font(.system(size: 16, weight: .medium))
+                                    Text("Save to My Phone Contact")
+                                        .font(.system(size: 16, weight: .medium))
+                                }
+                                .foregroundColor(isSavedToPhone ? .gray : .primary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 28)
+                                        .stroke(isSavedToPhone ? Color.gray.opacity(0.3) : Color.primary.opacity(0.3), lineWidth: 1)
+                                )
                             }
-                            .foregroundColor(isSavedToPhone ? .gray : .primary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 28)
-                                    .stroke(isSavedToPhone ? Color.gray.opacity(0.3) : Color.primary.opacity(0.3), lineWidth: 1)
-                            )
-                        }
-                        .disabled(isSavedToPhone || viewModel.isEditMode)
+                            .disabled(isSavedToPhone)
 
-                        if isSavedToPhone {
-                            HStack(spacing: 6) {
-                                Image(systemName: "info.circle")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.secondary)
+                            if isSavedToPhone {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "info.circle")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(.secondary)
 
-                                Text("This contact is already saved your phone.")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.secondary)
+                                    Text("This contact is already saved your phone.")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.horizontal, 4)
                             }
-                            .padding(.horizontal, 4)
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
 
                     Spacer()
                 }
@@ -109,16 +111,22 @@ struct EditContactView: View {
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         if viewModel.isEditMode {
-                            Button("Cancel") {
+                            Button {
                                 viewModel.isEditMode = false
+                            } label: {
+                                Text("Cancel")
+                                    .fontWeight(.regular)
                             }
                             .disabled(viewModel.isSaving)
                         }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         if viewModel.isEditMode {
-                            Button("Done") {
+                            Button {
                                 saveContact()
+                            } label: {
+                                Text("Done")
+                                    .fontWeight(.bold)
                             }
                             .disabled(!viewModel.isValid || viewModel.isSaving)
                         } else {
